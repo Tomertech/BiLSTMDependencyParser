@@ -1,0 +1,4 @@
+.idea
+.git
+.vector_cache/
+__pycache__/
