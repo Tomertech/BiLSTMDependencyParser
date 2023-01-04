@@ -1,7 +1,7 @@
 import os
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 from model import MSTDependencyParser
-from utils import get_transformed_sentences, get_pre_trained_voacb, get_pos_vocab
+from utils import get_sentences
 
 
 def main():
@@ -15,23 +15,21 @@ def main():
     model_path = 'models/model.pt'
     output_path = 'output.labeled'
 
-    pre_trained_vocab = get_pre_trained_voacb()
-    pos_vocab = get_pos_vocab()
-    train_transformed_sentences = get_transformed_sentences(train_path, pre_trained_vocab, pos_vocab)
+    train_sentences = get_sentences(train_short_path)
 
-    model = MSTDependencyParser(sentences=train_transformed_sentences, word_vocab=pre_trained_vocab, pos_vocab=pos_vocab)
+    model = MSTDependencyParser(sentences=train_sentences)
 
     print("\n~~~~~~~~~~~~~~~~~~~~~~~~~~~Training~~~~~~~~~~~~~~~~~~~~~~~~~~~\n")
-    model.train_model(epochs=10, lr=1e-3, batch_size=10)
-    train_uas = model.get_uas_corpus(train_transformed_sentences)
+    model.train_model(epochs=10, lr=5e-3, batch_size=10)
+    train_uas = model.get_uas_corpus(train_sentences)
     print(f"\ntrain mean UAS score: {train_uas}\n\n")
 
     # torch.save(model, model_path)
 
-    print("~~~~~~~~~~~~~~~~~~~~~~~~~~~Testing~~~~~~~~~~~~~~~~~~~~~~~~~~~\n")
-    test_transformed_sentences = get_transformed_sentences(test_path, pre_trained_vocab, pos_vocab)
-    test_uas = model.get_uas_corpus(test_transformed_sentences)
-    print(f"\ntest mean UAS score: {test_uas}\n\n")
+    # print("~~~~~~~~~~~~~~~~~~~~~~~~~~~Testing~~~~~~~~~~~~~~~~~~~~~~~~~~~\n")
+    # test_train_sentences = get_sentences(test_path)
+    # test_uas = model.get_uas_corpus(test_train_sentences)
+    # print(f"\ntest mean UAS score: {test_uas}\n\n")
 
 
 if __name__ == '__main__':

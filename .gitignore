@@ -2,3 +2,5 @@
 .git
 .vector_cache/
 __pycache__/
+embeds/
+models/

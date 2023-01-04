@@ -2,16 +2,73 @@ from collections import Counter
 import re
 import pickle
 from functools import wraps
+from collections import defaultdict
+from itertools import combinations
 
 # import conllu
 import time
 from gensim import downloader
 import torchtext
 import torch
+
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+fasttext = torchtext.vocab.FastText(language='en')
+
+pos_list = [
+        "CC",
+        "CD",
+        "DT",
+        "EX",
+        "FW",
+        "IN",
+        "JJ",
+        "JJR",
+        "JJS",
+        "LS",
+        "MD",
+        "NN",
+        "NNS",
+        "NNP",
+        "NNPS",
+        "PDT",
+        "POS",
+        "PRP",
+        "PRP$",
+        "RB",
+        "RBR",
+        "RBS",
+        "RP",
+        "SYM",
+        "TO",
+        "UH",
+        "VB",
+        "VBD",
+        "VBG",
+        "VBN",
+        "VBP",
+        "VBZ",
+        "WDT",
+        "WP",
+        "WP$",
+        "WRB",
+        "(",
+        ")",
+        ",",
+        ".",
+        ":",
+        "``",
+        "''",
+        "$",
+        "#",
+        "*ROOT*"
+    ]
+pos_to_idx = defaultdict(lambda:len(pos_list))
+for pos in pos_list:
+    pos_to_idx[pos] = len(pos_to_idx)
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ General ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 
 def timeit(func):
     @wraps(func)
@@ -38,74 +95,63 @@ def load_pickle(path):
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Task related ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+def get_arcs(n_words):
+    """ Get all possible arcs of the sentence, (v_i, v_j) where i != j and v_j is the root """
+    arcs = list(combinations(list(range(0, n_words)), 2))  # all possible arcs -> between words in sentence and root
+    arcs += list(combinations(reversed(list(range(1, n_words))), 2))  # all possible arcs -> between words in sentence
+    return arcs
 
-class Entry:
-    def __init__(self, loc, word, pos, parent_id):
-        self.loc = loc
-        self.original_word = word
-        self.normed_word = normalize(word)
-        self.pos = pos.upper()
-        self.parent_id = int(parent_id)
 
-        self.word_vec = None
-        self.pos_idx = None
+class Sentence:
+    def __init__(self, words: list, poss: list, parent_ids: list):
+        self.original_words = words
+        self.poss = [pos.upper() for pos in poss]
+        self.parent_ids = torch.tensor(parent_ids, device=device)
+        self.words_embeddings = get_embeddings(words)
+        self.poss_indices = torch.tensor([pos_to_idx[pos] for pos in poss], device=device)
 
-        # self.cpos = "_"
-        # self.lemma = "_"
-        # self.feats = "_"
-        # self.deps = "_"
-        # self.misc = "_"
-        # self.relation = "_"
+        # get all possible arcs of the sentence, (v_i, v_j) where i != j and v_j != 0
+        # because root can be a parent of any word, buy not vice versa
+        self.all_possible_arcs = get_arcs(len(words))
 
-        # self.pred_parent_id = None
-        # self.pred_relation = None
+    def __len__(self):
+        return len(self.original_words)
 
     def __str__(self):
-        values = [str(self.loc), self.normed_word, "_", "_", self.pos, "_", self.parent_id, "_", "_", "_"]
-        return '\t'.join(['_' if v is None else v for v in values])
+        return ' '.join(self.original_words)
+
+
+def get_embeddings(words: list):
+    words_embeddings = []
+
+    for word in words:
+        if "--" == word or "-" == word:
+            words_embeddings.append(fasttext[normalize("-")])
+        elif "-" in word:
+            seperated_words = list(set(word.split("-")))  # remove duplicates
+            seperated_words = [normalize(word) for word in seperated_words]
+            words_embeddings.append(fasttext.get_vecs_by_tokens(seperated_words).sum(dim=0))
+        else:
+            words_embeddings.append(fasttext[normalize(word)])
+
+    return torch.stack(words_embeddings).to(device)
 
 
 @timeit
-def get_transformed_sentences(conll_path, word_vocab, pos_vocab):
-    """get sentences as relevant entries"""
-    words_count = Counter()
-    pos_count = Counter()
-    sentences = get_sentences(conll_path)
-
-    for sentence in sentences:
-        words_count.update([node.normed_word for node in sentence if isinstance(node, Entry)])
-        pos_count.update([node.pos for node in sentence if isinstance(node, Entry)])
-
-        for word in sentence:
-            if "-" in word.normed_word:
-                left_word = word.normed_word.split("-", 1)[0]
-                right_word = word.normed_word.split("-", 1)[1]
-                word.word_vec = word_vocab[left_word] + word_vocab[right_word]
-            else:
-                word.word_vec = word_vocab[word.normed_word]
-
-            word.pos_idx = pos_vocab[word.pos]
-            word.word_vec.to(device)
-
-    return sentences
-
-
 def get_sentences(file):
     sentences = []
-    root = Entry(0, '*root*', '*root*', 0)
-    curr_sentence = [root]  # add root
+    words, poss, parent_ids = ['*root*'], ['*root*'], [0]
 
     with open(file, 'r') as f:
         for line in f.readlines():
-            entry = line.strip().split('\t')
-
             if line == '\n' or line == '\t' or line == ' ' or line.startswith('#'):
-                if len(curr_sentence) > 1:
-                    sentences.append(curr_sentence)  # add sentence
-                    curr_sentence = [root]  # make a root for the next sentence
-
+                sentences.append(Sentence(words, poss, parent_ids))
+                words, poss, parent_ids = ['*root*'], ['*root*'], [0]
             else:
-                curr_sentence.append(Entry(loc=int(entry[0]), word=entry[1], pos=entry[3], parent_id=entry[6]))
+                entry = line.strip().split('\t')
+                words.append(entry[1])
+                poss.append(entry[3])
+                parent_ids.append(int(entry[6]))
 
     return sentences
 
@@ -132,7 +178,9 @@ def normalize(word):
         return word.lower()
 
 
-@timeit
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ test functions ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
 def test_create_vocab(test_path, my_sentences):
 
     true_sentences = conllu.parse(open(test_path, "r").read())
@@ -142,83 +190,20 @@ def test_create_vocab(test_path, my_sentences):
             print(ts, ms)
 
 
-def get_pre_trained_voacb(pre_traind_vocab_name="embeds/glove-wiki-gigaword-100"):
-    # try:
-    #     pre_traind_vocab = load_pickle(pre_traind_vocab_name)
-    # except FileNotFoundError:
-    #     pre_traind_vocab = downloader.load(pre_traind_vocab_name)
-    #     save_pickle(pre_traind_vocab, pre_traind_vocab_name)
-    #
-    # finally:
-    #     return pre_traind_vocab
-    fasttext = torchtext.vocab.FastText(language='en')
-    return fasttext
+def test_get_embeddings():
+    words = ["Hello", "Hello-world", "hello-World-again-again", "-", "--"]
+    words_embeddings = get_embeddings(words)
+    print(words_embeddings)
 
 
-def get_pos_vocab():
-    pos_tags = {
-        "CC": 0,
-        "CD": 1,
-        "DT": 2,
-        "EX": 3,
-        "FW": 4,
-        "IN": 5,
-        "JJ": 6,
-        "JJR": 7,
-        "JJS": 8,
-        "LS": 9,
-        "MD": 10,
-        "NN": 11,
-        "NNS": 12,
-        "NNP": 13,
-        "NNPS": 14,
-        "PDT": 15,
-        "POS": 16,
-        "PRP": 17,
-        "PRP$": 18,
-        "RB": 19,
-        "RBR": 20,
-        "RBS": 21,
-        "RP": 22,
-        "SYM": 23,
-        "TO": 24,
-        "UH": 25,
-        "VB": 26,
-        "VBD": 27,
-        "VBG": 28,
-        "VBN": 29,
-        "VBP": 30,
-        "VBZ": 31,
-        "WDT": 32,
-        "WP": 33,
-        "WP$": 34,
-        "WRB": 35,
-        "(": 36,
-        ")": 37,
-        ",": 38,
-        ".": 39,
-        ":": 40,
-        "``": 41,
-        "''": 42,
-        "$": 43,
-        "#": 44,
-        "*ROOT*": 45,
-        "UNKNOWN": 46
-    }
-    return pos_tags
+def test_get_sentences():
+    sentences = get_sentences("data/train.labeled")
+    print(sentences[0])
 
 
 if __name__ == "__main__":
 
-    pre_trained_vocab = get_pre_trained_voacb()
-    pos_vocab = get_pos_vocab()
-    transformed_sentences = get_transformed_sentences("data/train.labeled", word_vocab=pre_trained_vocab, pos_vocab=pos_vocab)
-    test_create_vocab("data/train.labeled", transformed_sentences)
+    test_get_sentences()
+    # test_get_embeddings()
 
-    pos_set = set()
 
-    for sentence in transformed_sentences:
-        for w in sentence:
-            if w.pos not in get_pos_vocab():
-                pos_set.add(w.pos)
-    assert(len(pos_set) == 0)
