@@ -33,7 +33,7 @@ class MSTDependencyParser(nn.Module):
     def __init__(self, sentences, pos_emb_dim=25, hidden_dim_fc=100, hidden_dim_lstm=125, num_layers=2):
         super().__init__()
         self.sentences = sentences
-        self.word_embedding_dim = 300  # using fasttext with dim=300
+        self.word_embedding_dim = 100  # using GloVe with dim=100
         self.pos_emb_dim = pos_emb_dim
         self.encoder = EncoderBiLSTM(word_embedding_dim=self.word_embedding_dim, pos_vocab_size=len(pos_to_idx),
                                      pos_embedding_dim=self.pos_emb_dim, hidden_size=hidden_dim_lstm,
@@ -79,7 +79,7 @@ class MSTDependencyParser(nn.Module):
                     optimizer.zero_grad()
 
             total_time = time.perf_counter() - start_time
-            print(f'\nEpoch {round(epoch, 4)} loss: {running_loss/len(self.sentences)}, Took {total_time:.3f} seconds')
+            print(f'\nEpoch {epoch} loss: {round(running_loss/len(self.sentences))}, Took {total_time:.3f} seconds')
             running_loss = 0.0
 
     def eval_model(self, sentence):

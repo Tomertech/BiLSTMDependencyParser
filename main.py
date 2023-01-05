@@ -1,10 +1,12 @@
 import os
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
+import torch
 from model import MSTDependencyParser
 from utils import get_sentences
+import argparse
 
 
-def main():
+def main(epochs, lr, batch_size):
 
     train_short_path = 'data/train_short.labeled'
     train_short_5_path = 'data/train_short_5.labeled'
@@ -19,13 +21,15 @@ def main():
 
     model = MSTDependencyParser(sentences=train_sentences)
 
-    print("\n~~~~~~~~~~~~~~~~~~~~~~~~~~~Training~~~~~~~~~~~~~~~~~~~~~~~~~~~\n")
-    model.train_model(epochs=10, lr=5e-3, batch_size=10)
+    print("\n~~~~~~~~~~~~~~~~~~~~~~~~~~~ Training ~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+    print(f"epochs: {epochs}, learning rate: {lr}, batch size: {batch_size}\n")
+
+    model.train_model(epochs=epochs, lr=lr, batch_size=batch_size)
     train_uas = model.get_uas_corpus(train_sentences)
     print(f"\ntrain mean UAS score: {train_uas}\n\n")
 
     # torch.save(model, model_path)
-
+    #
     # print("~~~~~~~~~~~~~~~~~~~~~~~~~~~Testing~~~~~~~~~~~~~~~~~~~~~~~~~~~\n")
     # test_train_sentences = get_sentences(test_path)
     # test_uas = model.get_uas_corpus(test_train_sentences)
@@ -33,4 +37,12 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+
+    parser = argparse.ArgumentParser(
+        prog='BiLSTM Dependency Parser')
+    parser.add_argument('-e', '--epochs', dest='e', type=int, default=20)
+    parser.add_argument('-lr', '--learning_rate', dest='lr', type=float, default=5e-3)
+    parser.add_argument('-bs', '--batch_size', dest='bs', type=int, default=100)
+    args = parser.parse_args()
+
+    main(args.e, args.lr, args.bs)

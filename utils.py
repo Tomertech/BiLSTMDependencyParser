@@ -13,7 +13,7 @@ import torch
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-fasttext = torchtext.vocab.FastText(language='en')
+glove = torchtext.vocab.GloVe(name='6B', dim=100, max_vectors=100000)
 
 pos_list = [
         "CC",
@@ -105,6 +105,7 @@ def get_arcs(n_words):
 class Sentence:
     def __init__(self, words: list, poss: list, parent_ids: list):
         self.original_words = words
+        self.normalized_words = [word.lower() for word in words]
         self.poss = [pos.upper() for pos in poss]
         self.parent_ids = torch.tensor(parent_ids, device=device)
         self.words_embeddings = get_embeddings(words)
@@ -126,13 +127,13 @@ def get_embeddings(words: list):
 
     for word in words:
         if "--" == word or "-" == word:
-            words_embeddings.append(fasttext[normalize("-")])
+            words_embeddings.append(glove[normalize("-")])
         elif "-" in word:
             seperated_words = list(set(word.split("-")))  # remove duplicates
             seperated_words = [normalize(word) for word in seperated_words]
-            words_embeddings.append(fasttext.get_vecs_by_tokens(seperated_words).sum(dim=0))
+            words_embeddings.append(glove.get_vecs_by_tokens(seperated_words).sum(dim=0))
         else:
-            words_embeddings.append(fasttext[normalize(word)])
+            words_embeddings.append(glove[normalize(word)])
 
     return torch.stack(words_embeddings).to(device)
 
@@ -169,7 +170,7 @@ numberRegex = re.compile("[0-9]+|[0-9]+\\.[0-9]+|[0-9]+[0-9,]+")
 
 def normalize(word):
     if numberRegex.match(word):
-        return "###"
+        return "8"  # just a number that appears in GloVe
 
     elif word.endswith(".") and len(word) > 1:
         return word[:-1].lower()
@@ -202,8 +203,9 @@ def test_get_sentences():
 
 
 if __name__ == "__main__":
-
-    test_get_sentences()
+    arcs = get_arcs(5)
+    print(arcs)
+    # test_get_sentences()
     # test_get_embeddings()
 
 
