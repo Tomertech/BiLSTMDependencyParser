@@ -3,6 +3,7 @@ os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 import time
 import torch.nn as nn
 import torch
+from typing import List
 from tqdm import tqdm
 from chu_liu_edmonds import decode_mst
 from utils import pos_to_idx, Sentence
@@ -24,7 +25,7 @@ class EncoderBiLSTM(nn.Module):
         pos_embedding = self.pos_embedding(sentence.poss_indices)
 
         # concatenate word and pos embeddings
-        sequence = torch.cat((sentence.words_embeddings, pos_embedding), 1).to(device)
+        sequence = torch.cat((sentence.words_embeddings, pos_embedding), 1)
         v, _ = self.lstm(sequence)  # BiLSTM
         return v
 
@@ -48,15 +49,11 @@ class MSTDependencyParser(nn.Module):
     def forward(self, sentence: Sentence):
 
         words_as_features = self.encoder(sentence)
-
-        # Get score for each possible edge in the parsing graph by construct score matrix
-        scores_mat = torch.zeros((len(sentence), len(sentence)), device=device)
-
-        # Fill matrix with scores
-        for i, j in sentence.all_possible_arcs:
-            x = torch.cat((words_as_features[i], words_as_features[j]), 0)
-            score = self.fc_2(self.activation(self.fc_1(x))).to(device)
-            scores_mat[j][i] = score  # we want the score of each word's parent
+        sen_len = len(sentence)
+        tails = words_as_features.repeat([sen_len, 1]).reshape(sen_len, sen_len,-1)
+        heads = words_as_features.repeat([sen_len, 1]).reshape(sen_len, sen_len, -1).transpose(0, 1)
+        x = torch.cat((tails, heads), 2)
+        scores_mat = self.fc_2(self.activation(self.fc_1(x))).squeeze()
 
         # Calculate the negative log likelihood loss described above
         loss = self.loss(scores_mat, sentence.parent_ids)
@@ -79,7 +76,7 @@ class MSTDependencyParser(nn.Module):
                     optimizer.zero_grad()
 
             total_time = time.perf_counter() - start_time
-            print(f'\nEpoch {epoch} loss: {round(running_loss/len(self.sentences))}, Took {total_time:.3f} seconds')
+            print(f'\nEpoch {epoch} loss: {round(running_loss/len(self.sentences), 4)}, Took {total_time:.3f} seconds')
             running_loss = 0.0
 
     def eval_model(self, sentence):
@@ -93,8 +90,8 @@ class MSTDependencyParser(nn.Module):
         predicted_tree = decode_mst(score_mat.cpu().detach().numpy(), length=len(score_mat), has_labels=False)[0]
         return predicted_tree
 
-    def get_uas_corpus(self, sentences):
-        """this is how they asked to calculate the UAS score"""
+    def get_predictions(self, sentences: List[Sentence]):
+        """"inserts to each sentence the predicted tree and returns the UAS score"""
         self.eval()
         self.encoder.eval()
         sum_pred_correct = 0
@@ -105,7 +102,7 @@ class MSTDependencyParser(nn.Module):
             pred_labels = self.eval_model(sentence)
             correct = sum([1 if true_label == pred_label else 0 for true_label, pred_label in
                            zip(true_labels[1:], pred_labels[1:])])
-
+            sentence.preds_parents_ids = pred_labels
             sum_pred_correct += correct
             sum_sentences_lens += len(true_labels[1:])
 

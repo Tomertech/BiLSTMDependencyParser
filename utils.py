@@ -1,4 +1,4 @@
-from collections import Counter
+from typing import List
 import re
 import pickle
 from functools import wraps
@@ -107,10 +107,10 @@ class Sentence:
         self.original_words = words
         self.normalized_words = [word.lower() for word in words]
         self.poss = [pos.upper() for pos in poss]
-        self.parent_ids = torch.tensor(parent_ids, device=device)
+        self.parent_ids = torch.tensor(parent_ids, device=device, requires_grad=False)
         self.words_embeddings = get_embeddings(words)
-        self.poss_indices = torch.tensor([pos_to_idx[pos] for pos in poss], device=device)
-
+        self.poss_indices = torch.tensor([pos_to_idx[pos] for pos in poss], device=device, requires_grad=False)
+        self.preds_parents_ids = None
         # get all possible arcs of the sentence, (v_i, v_j) where i != j and v_j != 0
         # because root can be a parent of any word, buy not vice versa
         self.all_possible_arcs = get_arcs(len(words))
@@ -155,6 +155,19 @@ def get_sentences(file):
                 parent_ids.append(int(entry[6]))
 
     return sentences
+
+
+def write_sentences(sentences: List[Sentence], f):
+    with open(f, 'w') as f:
+        for sentence in sentences:
+            words = sentence.original_words[1:]
+            poss = sentence.poss[1:]
+            parent_ids = sentence.preds_parents_ids[1:]
+
+            for i, (word, pos, parent_id) in enumerate(zip(words, poss, parent_ids)):
+                f.write(f"{i+1}\t{word}\t_\t{pos}\t_\t_\t{parent_id}\t_\t_\t_")
+                f.write('\n')
+            f.write('\n')
 
 
 def write_conll(fn, conll_gen):
@@ -202,9 +215,14 @@ def test_get_sentences():
     print(sentences[0])
 
 
+def test_write_sentences():
+    sentences = get_sentences("data/train_short_5.labeled")
+    write_sentences(sentences, "data/train_short_5_write_sentences")
+
+
 if __name__ == "__main__":
-    arcs = get_arcs(5)
-    print(arcs)
+    test_write_sentences()
+    # arcs = get_arcs(5)
     # test_get_sentences()
     # test_get_embeddings()
 
