@@ -25,15 +25,17 @@ def exp(epochs, lr, batch_size, test, save, train_size):
         train_path = train_path
 
     train_sentences = get_sentences(train_path)
+    test_sentences = get_sentences(test_path)
 
     model = MSTDependencyParser(sentences=train_sentences)
 
     print("\n~~~~~~~~~~~~~~~~~~~~~~~~~~~ Training ~~~~~~~~~~~~~~~~~~~~~~~~~~~")
-    print(f"epochs: {epochs}, learning rate: {lr}, batch size: {batch_size}, test: {test}, save: {save}, train_size: {train_size}\n")
+    print(f"epochs: {epochs}, learning rate: {lr}, batch size: {batch_size}, test: {test}, save: {save}, "
+          f"train_size: {train_size}, torch seed: {0}, vocab: GloVe.42B.300\n")
 
-    model.train_model(epochs=epochs, lr=lr, batch_size=batch_size)
+    model.train_model(epochs=epochs, lr=lr, batch_size=batch_size, test_sentences=test_sentences)
     train_uas = model.get_predictions(train_sentences)
-    print(f"\ntrain mean UAS score: {train_uas}\n\n")
+    print(f"\ntrain mean UAS score: {train_uas[0]}\n\n")
 
     if save:
         print(f"\nSaving model: {model_path}\n")
@@ -41,8 +43,7 @@ def exp(epochs, lr, batch_size, test, save, train_size):
 
     if test:
         print("\n~~~~~~~~~~~~~~~~~~~~~~~~~~~Testing~~~~~~~~~~~~~~~~~~~~~~~~~~~\n")
-        test_train_sentences = get_sentences(test_path)
-        test_uas = model.get_predictions(test_train_sentences)
+        test_uas = model.get_predictions(test_sentences)
         print(f"\ntest mean UAS score: {test_uas}\n\n")
 
 
@@ -58,8 +59,8 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(
         prog='BiLSTM Dependency Parser')
-    parser.add_argument('-e', '--epochs', dest='e', type=int, default=30)
-    parser.add_argument('-lr', '--learning_rate', dest='lr', type=float, default=2e-3)
+    parser.add_argument('-e', '--epochs', dest='e', type=int, default=10)
+    parser.add_argument('-lr', '--learning_rate', dest='lr', type=float, default=1e-3)
     parser.add_argument('-bs', '--batch_size', dest='bs', type=int, default=32)
     parser.add_argument('-t', '--test', dest='test', action='store_true')
     parser.add_argument('-s', '--save', dest='save', action='store_true')

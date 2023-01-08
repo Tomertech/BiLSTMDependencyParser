@@ -4,16 +4,19 @@ import pickle
 from functools import wraps
 from collections import defaultdict
 from itertools import combinations
-
+import matplotlib.pyplot as plt
+import numpy as np
 # import conllu
 import time
 from gensim import downloader
 import torchtext
 import torch
 
+torch.manual_seed(0)
+
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-glove = torchtext.vocab.GloVe(name='6B', dim=100, max_vectors=100000)
+glove = torchtext.vocab.GloVe(name='42B', dim=300, max_vectors=200000)
 
 pos_list = [
         "CC",
@@ -191,6 +194,24 @@ def normalize(word):
     else:
         return word.lower()
 
+
+def plot_stats(loss_list, uas_list, title):
+    fig = plt.figure(figsize=(17, 5))
+    fig.suptitle(f'{title} Curves', fontsize=16)
+
+    ax1 = fig.add_subplot(1, 2, 1)
+    ax1.plot(np.arange(len(loss_list)), loss_list)
+    ax1.set_title('Cross Entropy Loss')
+    ax1.set_ylabel('Loss')
+    ax1.set_xlabel('Epochs')
+
+    ax2 = fig.add_subplot(1, 2, 2)
+    ax2.plot(np.arange(len(uas_list)), uas_list)
+    ax2.set_title('UAS')
+    ax2.set_ylabel('Accuracy')
+    ax2.set_xlabel('Epochs')
+
+    plt.savefig(f'./{title}_curves.jpg')
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ test functions ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
