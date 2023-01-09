@@ -16,7 +16,7 @@ torch.manual_seed(0)
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-glove = torchtext.vocab.GloVe(name='42B', dim=300, max_vectors=200000)
+glove = torchtext.vocab.GloVe(name='6B', dim=100)
 
 pos_list = [
         "CC",
@@ -66,7 +66,7 @@ pos_list = [
         "#",
         "*ROOT*"
     ]
-pos_to_idx = defaultdict(lambda:len(pos_list))
+pos_to_idx = defaultdict(lambda: len(pos_list))
 for pos in pos_list:
     pos_to_idx[pos] = len(pos_to_idx)
 
@@ -97,6 +97,7 @@ def load_pickle(path):
 
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Task related ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 
 def get_arcs(n_words):
     """ Get all possible arcs of the sentence, (v_i, v_j) where i != j and v_j is the root """
@@ -129,20 +130,22 @@ def get_embeddings(words: list):
     words_embeddings = []
 
     for word in words:
-        if "--" == word or "-" == word:
+        if word in glove.stoi.keys():
+            words_embeddings.append(glove[normalize(word)])
+        elif word == "--" or word == "-":
             words_embeddings.append(glove[normalize("-")])
         elif "-" in word:
             seperated_words = list(set(word.split("-")))  # remove duplicates
             seperated_words = [normalize(word) for word in seperated_words]
             words_embeddings.append(glove.get_vecs_by_tokens(seperated_words).sum(dim=0))
         else:
-            words_embeddings.append(glove[normalize(word)])
+            words_embeddings.append(glove[normalize(word)])  # if word not in glove, return zeroes vector
 
     return torch.stack(words_embeddings).to(device)
 
 
 @timeit
-def get_sentences(file):
+def get_sentences(file, mode='train'):
     sentences = []
     words, poss, parent_ids = ['*root*'], ['*root*'], [0]
 
@@ -155,7 +158,8 @@ def get_sentences(file):
                 entry = line.strip().split('\t')
                 words.append(entry[1])
                 poss.append(entry[3])
-                parent_ids.append(int(entry[6]))
+                if mode == 'train':
+                    parent_ids.append(int(entry[6]))
 
     return sentences
 
@@ -211,7 +215,8 @@ def plot_stats(loss_list, uas_list, title):
     ax2.set_ylabel('Accuracy')
     ax2.set_xlabel('Epochs')
 
-    plt.savefig(f'./{title}_curves.jpg')
+    plt.savefig(f'{title}_curves.jpg')
+
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ test functions ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

@@ -4,5 +4,4 @@
 __pycache__/
 embeds/
 models/
-/train_curves.jpg
-/test_curves.jpg
+/figs

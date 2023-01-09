@@ -55,12 +55,9 @@ class MSTDependencyParser(nn.Module):
         x = torch.cat((heads, modifiers), 2)
         scores_mat = self.fc_2(self.activation(self.fc_1(x))).squeeze()
 
-        # Calculate the negative log likelihood loss described above
-        loss = self.loss(scores_mat, sentence.parent_ids)
+        return scores_mat
 
-        return loss, scores_mat
-
-    def train_model(self, epochs, lr, batch_size, test_sentences):
+    def train_model(self, epochs, lr, batch_size, test_sentences=None):
         optimizer = torch.optim.Adam(self.parameters(), lr=lr)
 
         train_loss, train_uas, test_loss, test_uas = [], [], [], []
@@ -68,7 +65,9 @@ class MSTDependencyParser(nn.Module):
         for epoch in range(epochs):
             start_time = time.perf_counter()
             for batch_idx, sentence in enumerate(tqdm(self.sentences, position=0, desc="sentence", leave=False)):
-                loss, _ = self.forward(sentence)
+                scores_mat = self.forward(sentence)
+                # Calculate the negative log likelihood loss described above
+                loss = self.loss(scores_mat, sentence.parent_ids)
                 loss.backward()
 
                 if (batch_idx + 1) % batch_size == 0 or (batch_idx + 1) == len(self.sentences):
@@ -76,32 +75,38 @@ class MSTDependencyParser(nn.Module):
                     optimizer.zero_grad()
 
             total_time = time.perf_counter() - start_time
-            epoc_train_uas, epoc_train_loss = self.get_predictions(self.sentences)
-            epoc_test_uas, epoc_test_loss = self.get_predictions(test_sentences)
+            epoc_train_uas, epoc_train_loss = self.eval_model(self.sentences)
             train_loss.append(epoc_train_loss)
             train_uas.append(epoc_train_uas)
-            test_loss.append(epoc_test_loss)
-            test_uas.append(epoc_test_uas)
 
-            print(f'\nEpoch {epoch} loss train: {round(epoc_train_loss, 4)}, UAS train: {round(epoc_train_uas, 4)} '
-                  f'loss test: {round(epoc_test_loss, 4)}, UAS test: {round(epoc_test_uas, 4)} '
+            test_epoch_str = ''
+
+            if test_sentences:
+                epoc_test_uas, epoc_test_loss = self.eval_model(test_sentences)
+                test_loss.append(epoc_test_loss)
+                test_uas.append(epoc_test_uas)
+                plot_stats(test_loss, test_uas, f"TEST epochs {epochs} lr {lr}, batch_size {batch_size}")
+                test_epoch_str = f"loss test {round(epoc_test_loss, 4)}, UAS test {round(epoc_test_uas, 4)}"
+
+            print(f'\nEpoch {epoch} loss train {round(epoc_train_loss, 4)}, UAS train {round(epoc_train_uas, 4)} '
+                  + test_epoch_str +
                   f'Took {total_time:.3f} seconds')
 
-            plot_stats(train_loss, train_uas, f"train - epochs: {epochs} lr: {lr}, batch_size: {batch_size}")
-            plot_stats(test_loss, test_uas, f"test - epochs: {epochs} lr: {lr}, batch_size: {batch_size}")
+            plot_stats(train_loss, train_uas, f"TRAIN epochs {epochs} lr {lr}, batch_size {batch_size}")
 
-    def eval_model(self, sentence):
+    def _eval_model_sentence(self, sentence):
         with torch.no_grad():
-            loss, score_mat = self.forward(sentence)
-            score_mat = score_mat.T  # in order to get matrix of scores of edges (i, j)
-            # make probability
-            score_mat.fill_diagonal_(-torch.inf)
-            score_mat[:, 0] = -torch.inf
-            score_mat = torch.softmax(score_mat, dim=0)  # dim=0 because we want to softmax each row
-            predicted_tree = decode_mst(score_mat.cpu().detach().numpy(), length=len(score_mat), has_labels=False)[0]
-        return predicted_tree, loss.item()
+            scores_mat = self.forward(sentence)
 
-    def get_predictions(self, sentences: List[Sentence]):
+            scores_mat_mst = scores_mat.clone().T  # in order to get matrix of scores of edges (i, j)
+            # make probability
+            scores_mat_mst.fill_diagonal_(-torch.inf)
+            scores_mat_mst[:, 0] = -torch.inf
+            scores_mat_mst = torch.softmax(scores_mat_mst, dim=0)  # dim=0 because we want to softmax each row
+            predicted_tree = decode_mst(scores_mat_mst.cpu().detach().numpy(), length=len(scores_mat_mst), has_labels=False)[0]
+        return predicted_tree, scores_mat
+
+    def eval_model(self, sentences: List[Sentence]):
         """"inserts to each sentence the predicted tree and returns the UAS score"""
         self.eval()
         self.encoder.eval()
@@ -112,11 +117,12 @@ class MSTDependencyParser(nn.Module):
 
         for sentence in tqdm(sentences):
             true_labels = sentence.parent_ids
-            pred_labels, sen_loss = self.eval_model(sentence)
+            pred_labels, scores_mat = self._eval_model_sentence(sentence)
+            sentence.preds_parents_ids = pred_labels
+            sen_loss = self.loss(scores_mat, true_labels).item()
             sum_loss += sen_loss
             correct = sum([1 if true_label == pred_label else 0 for true_label, pred_label in
                            zip(true_labels[1:], pred_labels[1:])])
-            sentence.preds_parents_ids = pred_labels
             sum_pred_correct += correct
             sum_sentences_lens += len(true_labels[1:])
 
@@ -127,3 +133,17 @@ class MSTDependencyParser(nn.Module):
         self.encoder.train()
 
         return uas, loss
+
+    def get_predictions(self, sentences: List[Sentence]):
+
+        self.eval()
+        self.encoder.eval()
+
+        for sentence in tqdm(sentences):
+            pred_labels, _ = self._eval_model_sentence(sentence)
+            sentence.preds_parents_ids = pred_labels
+
+        self.train()
+        self.encoder.train()
+
+        return sentences
